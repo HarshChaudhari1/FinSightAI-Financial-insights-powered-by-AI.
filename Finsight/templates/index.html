@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finsight - AI Financial Analyst</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #020617; /* Slate 950 */
+            color: #e2e8f0; /* Slate 200 */
+        }
+        #grid-background {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background-image:
+                linear-gradient(to right, rgba(30, 41, 59, 0.5) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(30, 41, 59, 0.5) 1px, transparent 1px);
+            background-size: 40px 40px;
+            animation: pan-grid 60s linear infinite;
+        }
+        @keyframes pan-grid {
+            0% { background-position: 0% 0%; }
+            100% { background-position: 100% 100%; }
+        }
+        .widget-card {
+            background-color: rgba(15, 23, 42, 0.6); /* Slate 900 with opacity */
+            border: 1px solid #1e293b; /* Slate 800 */
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: all 0.3s ease;
+        }
+        .widget-card:hover {
+            border-color: #38bdf8; /* Sky 400 */
+            transform: translateY(-2px);
+        }
+        .title-glow {
+            font-family: 'IBM Plex Mono', monospace;
+            text-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+        }
+        .loader {
+            border: 4px solid #1e293b; /* Slate 800 */
+            border-top: 4px solid #38bdf8; /* Sky 400 */
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .animate-fade-in-up {
+            animation: fade-in-up 0.5s ease-out forwards;
+            opacity: 0;
+        }
+        @keyframes fade-in-up {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .text-gradient-green { background-image: linear-gradient(to right, #4ade80, #86efac); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .text-gradient-red { background-image: linear-gradient(to right, #f87171, #fca5a5); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .text-gradient-yellow { background-image: linear-gradient(to right, #facc15, #fde047); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        
+        details > summary {
+            transition: background-color 0.2s ease-in-out;
+        }
+        details svg.chevron {
+            transition: transform 0.2s ease-in-out;
+        }
+        details[open] svg.chevron {
+            transform: rotate(180deg);
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 lg:p-8">
+    <div id="grid-background"></div>
+    <div class="max-w-screen-2xl mx-auto">
+
+        <header class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-sky-400 title-glow">Finsight</h1>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+            <!-- Left Column -->
+            <div class="md:col-span-1 lg:col-span-1 flex flex-col gap-6">
+                <section class="widget-card rounded-xl p-5">
+                    <h2 class="text-lg font-semibold mb-3 text-sky-400 title-glow flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" /></svg>
+                        Search Company
+                    </h2>
+                    <div class="relative">
+                        <input type="text" id="company-search" placeholder="Type to search..." class="w-full bg-slate-950 border border-slate-700 rounded-md py-2 px-4 focus:ring-2 focus:ring-sky-500 focus:outline-none transition">
+                    </div>
+                    <div id="company-list" class="mt-2 max-h-48 overflow-y-auto space-y-1"></div>
+                </section>
+
+                <section id="price-widget" class="widget-card rounded-xl p-5 hidden">
+                    <h2 id="company-ticker" class="text-lg font-semibold text-sky-400 title-glow"></h2>
+                    <div class="flex items-baseline gap-4 mt-2">
+                        <p id="current-price-value" class="text-4xl font-bold text-white">--</p>
+                        <p id="price-trend" class="font-semibold flex items-center"></p>
+                    </div>
+                </section>
+                
+                <section id="ratios-widget" class="widget-card rounded-xl p-5 hidden">
+                    <h3 class="text-lg font-semibold mb-3 text-sky-400 title-glow">Key Ratios</h3>
+                    <div id="ratios-content" class="space-y-2"></div>
+                </section>
+
+                <section id="forecast-widget" class="widget-card rounded-xl p-5 hidden">
+                    <h3 class="text-lg font-semibold mb-3 text-sky-400 title-glow">Model Forecasts</h3>
+                    <div id="forecast-content" class="space-y-2"></div>
+                </section>
+
+                <section id="sources-widget" class="widget-card rounded-xl p-5 hidden">
+                    <h3 class="text-lg font-semibold mb-3 text-sky-400 title-glow">Analysis Sources</h3>
+                    <div id="sources-content" class="flex flex-wrap gap-2"></div>
+                </section>
+            </div>
+
+            <!-- Center Column -->
+            <div class="md:col-span-1 lg:col-span-2 flex flex-col gap-6">
+                <section id="query-section" class="widget-card rounded-xl p-5 hidden">
+                    <h2 class="text-lg font-semibold mb-3 text-sky-400 title-glow">Submit Query for <span id="selected-company-name" class="text-white font-bold"></span></h2>
+                    <textarea id="query-input" rows="3" class="w-full bg-slate-950 border border-slate-700 rounded-md p-3 focus:ring-2 focus:ring-sky-500 focus:outline-none transition"></textarea>
+                    <button id="get-analysis-btn" class="mt-4 w-full px-8 py-3 rounded-lg bg-sky-600 text-white font-semibold hover:bg-sky-500 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2">
+                        Get Analysis
+                    </button>
+                </section>
+
+                <section class="widget-card rounded-xl p-6 min-h-[400px]">
+                    <div id="loader-container" class="hidden h-full flex items-center justify-center">
+                        <div class="loader rounded-full w-12 h-12"></div>
+                    </div>
+                    <div id="results-content" class="hidden opacity-0 transition-opacity duration-500"></div>
+                    <div id="welcome-message" class="text-center flex flex-col justify-center items-center h-full text-slate-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        <h2 class="text-2xl font-semibold">Welcome to Finsight</h2>
+                        <p class="mt-2">Please select a company to begin analysis.</p>
+                    </div>
+                    <div id="error-message" class="hidden text-center p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-300"></div>
+                </section>
+            </div>
+
+            <!-- Right Column -->
+            <div class="md:col-span-2 lg:col-span-1 flex flex-col gap-6">
+                <section id="chart-widget" class="widget-card rounded-xl p-5 hidden">
+                    <h3 id="chart-title" class="text-lg font-semibold mb-3 text-sky-400 title-glow">Stock Performance (1Y)</h3>
+                    <canvas id="stockChart"></canvas>
+                </section>
+                <section id="news-widget" class="widget-card rounded-xl p-5 hidden">
+                    <h3 class="text-lg font-semibold mb-3 text-sky-400 title-glow flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd" /></svg>
+                        Latest News
+                    </h3>
+                    <div id="news-feed" class="space-y-3 max-h-96 overflow-y-auto"></div>
+                </section>
+                <!-- NEW: Evidence Locker Widget -->
+                <section id="evidence-widget" class="widget-card rounded-xl p-5 hidden">
+                    <h3 class="text-lg font-semibold mb-3 text-sky-400 title-glow flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" /></svg>
+                        AI's Evidence Locker
+                    </h3>
+                    <div id="evidence-content" class="space-y-3"></div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // --- State and Constants ---
+    const appState = { selectedCompany: null, isLoading: false };
+    const companies = ["Adani Enterprises", "Bajaj", "Bharti airtel", "Coal India", "HDFC", "HDFC Life Insurance", "Hindustanunilever", "ICICI", "Infosys", "ITC", "JSW", "Nestle", "NTPC", "ONGC", "PGCIL", "Reliance Industries", "SBI", "TCS", "Tata Motors", "Tech Mahindra"];
+    const TICKER_MAP = { "Bajaj": "BAJFINANCE.NS", "Bharti airtel": "BHARTIARTL.NS", "HDFC": "HDFCBANK.NS", "Hindustanunilever": "HINDUNILVR.NS", "ICICI": "ICICIBANK.NS", "Infosys": "INFY.NS", "ITC": "ITC.NS", "Reliance Industries": "RELIANCE.NS", "SBI": "SBIN.NS", "TCS": "TCS.NS", "Tech Mahindra": "TECHM.NS", "Tata Motors": "TATAMOTORS.NS", "PGCIL": "POWERGRID.NS", "ONGC": "ONGC.NS", "NTPC": "NTPC.NS", "Nestle": "NESTLEIND.NS", "JSW": "JSWSTEEL.NS", "Coal India": "COALINDIA.NS", "HDFC Life Insurance": "HDFCLIFE.NS", "Adani Enterprises": "ADANIENT.NS"};
+    let stockChart = null;
+
+    // --- Element Cache ---
+    const elements = {
+        companySearch: document.getElementById('company-search'),
+        companyList: document.getElementById('company-list'),
+        querySection: document.getElementById('query-section'),
+        selectedCompanyName: document.getElementById('selected-company-name'),
+        queryInput: document.getElementById('query-input'),
+        getAnalysisBtn: document.getElementById('get-analysis-btn'),
+        loaderContainer: document.getElementById('loader-container'),
+        resultsContent: document.getElementById('results-content'),
+        welcomeMessage: document.getElementById('welcome-message'),
+        errorMessage: document.getElementById('error-message'),
+        chartWidget: document.getElementById('chart-widget'),
+        chartTitle: document.getElementById('chart-title'),
+        ratiosWidget: document.getElementById('ratios-widget'),
+        ratiosContent: document.getElementById('ratios-content'),
+        forecastWidget: document.getElementById('forecast-widget'),
+        forecastContent: document.getElementById('forecast-content'),
+        newsWidget: document.getElementById('news-widget'),
+        newsFeed: document.getElementById('news-feed'),
+        priceWidget: document.getElementById('price-widget'),
+        companyTicker: document.getElementById('company-ticker'),
+        currentPriceValue: document.getElementById('current-price-value'),
+        priceTrend: document.getElementById('price-trend'),
+        sourcesWidget: document.getElementById('sources-widget'),
+        sourcesContent: document.getElementById('sources-content'),
+        // NEW: Add evidence elements to cache
+        evidenceWidget: document.getElementById('evidence-widget'),
+        evidenceContent: document.getElementById('evidence-content'),
+    };
+
+    // --- Helper Functions ---
+    function getValueColorClass(value) {
+        if (typeof value !== 'string' && typeof value !== 'number') return 'text-slate-300';
+        const num = parseFloat(String(value).replace(/[^\d.-]/g, ''));
+        if (isNaN(num)) return 'text-slate-300';
+        if (num > 0) return 'text-green-400';
+        if (num < 0) return 'text-red-400';
+        return 'text-slate-300';
+    }
+
+    function getSentimentFromRecommendation(recommendationText) {
+        const lowerText = (recommendationText || '').toLowerCase();
+        if (lowerText.includes('buy')) return 'buy';
+        if (lowerText.includes('sell')) return 'sell';
+        if (lowerText.includes('hold')) return 'hold';
+        return 'neutral';
+    }
+    
+    // --- Event Listeners ---
+    elements.companySearch.addEventListener('input', (e) => renderCompanyList(e.target.value));
+    elements.getAnalysisBtn.addEventListener('click', () => {
+        const query = elements.queryInput.value.trim();
+        if (!query || appState.isLoading) return;
+        callBackend(appState.selectedCompany, query);
+    });
+
+    // --- Initialization ---
+    renderCompanyList();
+
+    // --- UI Update Functions ---
+    function renderCompanyList(searchTerm = '') {
+        elements.companyList.innerHTML = '';
+        const filteredCompanies = companies.filter(c => c.toLowerCase().includes(searchTerm.toLowerCase()));
+        
+        if(filteredCompanies.length === 0){
+            elements.companyList.innerHTML = `<p class="text-slate-500 text-sm px-2">No companies found.</p>`;
+            return;
+        }
+
+        filteredCompanies.forEach(company => {
+            const button = document.createElement('button');
+            button.textContent = company;
+            button.className = 'w-full text-left px-3 py-2 rounded-md hover:bg-slate-700 transition-colors text-slate-300';
+            button.dataset.company = company;
+            button.onclick = handleCompanySelection;
+            elements.companyList.appendChild(button);
+        });
+    }
+
+    function handleCompanySelection(event) {
+        appState.selectedCompany = event.target.dataset.company;
+        elements.selectedCompanyName.textContent = appState.selectedCompany;
+        elements.queryInput.placeholder = `e.g., What is the future outlook for ${appState.selectedCompany}?`;
+        elements.companyTicker.textContent = TICKER_MAP[appState.selectedCompany] || 'N/A';
+        elements.querySection.classList.remove('hidden');
+        elements.querySection.classList.add('animate-fade-in-up');
+        elements.priceWidget.classList.remove('hidden');
+        elements.priceWidget.classList.add('animate-fade-in-up');
+        resetUI();
+    }
+
+    function resetUI() {
+        // NEW: Add evidenceWidget to the reset list
+        [elements.chartWidget, elements.ratiosWidget, elements.forecastWidget, elements.newsWidget, elements.resultsContent, elements.errorMessage, elements.sourcesWidget, elements.evidenceWidget].forEach(el => el.classList.add('hidden'));
+        elements.welcomeMessage.classList.remove('hidden');
+        elements.resultsContent.classList.remove('opacity-100');
+        elements.resultsContent.classList.add('opacity-0');
+        elements.currentPriceValue.textContent = "₹--.--";
+        elements.priceTrend.innerHTML = '';
+    }
+
+    function updateUIForLoading() {
+        appState.isLoading = true;
+        elements.getAnalysisBtn.disabled = true;
+        elements.getAnalysisBtn.innerHTML = `<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Analyzing...`;
+        [elements.errorMessage, elements.resultsContent, elements.welcomeMessage].forEach(el => el.classList.add('hidden'));
+        elements.loaderContainer.classList.remove('hidden');
+        elements.loaderContainer.classList.add('flex');
+    }
+    
+    function renderResults(data) {
+        elements.loaderContainer.classList.add('hidden');
+        
+        const parseRecommendation = (text) => {
+            if (!text) return 'N/A';
+            return text.replace(/\*\*(.*?)\*\*/g, (match, content) => {
+                const sentiment = getSentimentFromRecommendation(content);
+                let gradClass = '';
+                if (sentiment === 'buy') gradClass = 'text-gradient-green';
+                else if (sentiment === 'sell') gradClass = 'text-gradient-red';
+                else if (sentiment === 'hold') gradClass = 'text-gradient-yellow';
+                return `<strong class="font-bold text-2xl ${gradClass}">${content}</strong>`;
+            });
+        };
+
+        // NEW: Removed evidence container from this innerHTML
+        elements.resultsContent.innerHTML = `
+            <h3 class="text-xl font-bold mb-3 text-sky-400 title-glow">Recommendation & Outlook</h3>
+            <p class="text-lg">${parseRecommendation(data.recommendation)}</p>
+            <h3 class="text-xl font-bold mt-6 mb-3 text-sky-400 title-glow">Analysis Summary</h3>
+            <p class="text-slate-300 leading-relaxed">${data.summary || 'No summary available.'}</p>
+            <h3 class="text-xl font-bold mt-6 mb-3 text-sky-400 title-glow">Key Drivers</h3>
+            <ul class="list-disc list-inside space-y-2 text-slate-300">${(data.drivers && data.drivers.length > 0) ? data.drivers.map(d => `<li>${d}</li>`).join('') : '<li>No drivers identified.</li>'}</ul>
+        `;
+        elements.resultsContent.classList.remove('hidden');
+        setTimeout(() => elements.resultsContent.classList.add('opacity-100'), 50);
+
+        elements.currentPriceValue.textContent = data.currentPrice || 'N/A';
+        const priceHistory = data.chartData ? (data.chartData.data || []) : [];
+        if (priceHistory.length >= 2) {
+            const lastPrice = priceHistory[priceHistory.length - 1];
+            const prevPrice = priceHistory[priceHistory.length - 2];
+            if (lastPrice > prevPrice) {
+                elements.priceTrend.innerHTML = `<span class="text-green-400">▲</span>`;
+                elements.currentPriceValue.classList.add('text-green-400');
+                elements.currentPriceValue.classList.remove('text-red-400');
+            } else if (lastPrice < prevPrice) {
+                elements.priceTrend.innerHTML = `<span class="text-red-400">▼</span>`;
+                elements.currentPriceValue.classList.add('text-red-400');
+                elements.currentPriceValue.classList.remove('text-green-400');
+            } else {
+                elements.priceTrend.innerHTML = `<span>-</span>`;
+            }
+        }
+
+        renderWidget(elements.ratiosWidget, elements.ratiosContent, data.financialRatios);
+        renderWidget(elements.forecastWidget, elements.forecastContent, data.forecastData);
+        renderNews(data.news);
+        renderEvidence(data.evidence); // Renders into the new right-hand column widget
+        renderSourcesUsed(data.sources_used);
+        
+        if(data.chartData && data.chartData.data) {
+             renderChart(data.chartData, data.forecastChartData);
+        }
+    }
+    
+    function renderWidget(widgetEl, contentEl, data) {
+        if (data && Object.keys(data).length > 0) {
+            contentEl.innerHTML = Object.entries(data).map(([key, value]) => `
+                <div class="flex justify-between items-center text-sm">
+                    <span class="text-slate-400 capitalize">${key.replace(/_/g, ' ')}</span>
+                    <span class="font-mono font-semibold ${getValueColorClass(value)}">${value || 'N/A'}</span>
+                </div>
+            `).join('');
+            widgetEl.classList.remove('hidden');
+            widgetEl.classList.add('animate-fade-in-up');
+        }
+    }
+    
+    function renderNews(newsData) {
+        if (newsData && newsData.length > 0) {
+            elements.newsFeed.innerHTML = newsData.map(article => `
+                <a href="${article.url}" target="_blank" class="block p-3 rounded-md hover:bg-slate-800 border border-slate-800 transition-all duration-300 ease-in-out hover:shadow-lg hover:shadow-sky-500/10 hover:-translate-y-1">
+                    <p class="font-semibold text-sm text-slate-200">${article.title}</p>
+                    <p class="text-xs mt-1 text-slate-400 flex items-center gap-1">Read More <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg></p>
+                </a>
+            `).join('');
+            elements.newsWidget.classList.remove('hidden');
+            elements.newsWidget.classList.add('animate-fade-in-up');
+        }
+    }
+
+    // NEW: Modified function to render into the new widget
+    function renderEvidence(evidenceData) {
+        const container = elements.evidenceContent;
+        if (!evidenceData || !container) return;
+        
+        let evidenceHTML = ''; // Title is now static in the HTML
+
+        const webEvidence = evidenceData.from_web_search;
+        if (webEvidence && webEvidence.length > 0) {
+            evidenceHTML += `<details class="bg-slate-900/50 border border-slate-700 rounded-lg mb-3"><summary class="p-4 cursor-pointer font-semibold text-slate-300 hover:bg-slate-800/50 rounded-t-lg flex justify-between items-center"><span>Evidence from Web Search</span><svg class="w-5 h-5 chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg></summary><div class="p-4 border-t border-slate-700 space-y-3">${webEvidence.map(item => `<div class="bg-slate-950 p-3 rounded-md"><a href="${item.url}" target="_blank" class="font-semibold text-sky-400 hover:underline">${item.title}</a><p class="text-sm text-slate-400 mt-1">${item.content ? item.content.substring(0, 250) : ''}...</p></div>`).join('')}</div></details>`;
+        }
+
+        const dbEvidence = evidenceData.from_vector_db;
+        if (dbEvidence && dbEvidence.length > 0) {
+            evidenceHTML += `<details class="bg-slate-900/50 border border-slate-700 rounded-lg"><summary class="p-4 cursor-pointer font-semibold text-slate-300 hover:bg-slate-800/50 rounded-t-lg flex justify-between items-center"><span>Evidence from Annual Reports</span><svg class="w-5 h-5 chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg></summary><div class="p-4 border-t border-slate-700 space-y-3">${dbEvidence.map(doc => `<div class="bg-slate-950 p-3 rounded-md"><p class="text-xs text-slate-500 mb-1">Source File: ${doc.source_file}</p><p class="text-sm text-slate-400">${doc.content ? doc.content.substring(0, 400) : ''}...</p></div>`).join('')}</div></details>`;
+        }
+        
+        container.innerHTML = evidenceHTML;
+
+        if (evidenceHTML.trim() !== '') {
+            elements.evidenceWidget.classList.remove('hidden');
+            elements.evidenceWidget.classList.add('animate-fade-in-up');
+        }
+    }
+
+    function renderSourcesUsed(sources) {
+        if (!sources || sources.length === 0) {
+            elements.sourcesWidget.classList.add('hidden');
+            return;
+        };
+        elements.sourcesContent.innerHTML = sources.map(source => `<span class="bg-slate-700 text-sky-300 text-xs font-medium px-2.5 py-1 rounded-full">${source}</span>`).join('');
+        elements.sourcesWidget.classList.remove('hidden');
+        elements.sourcesWidget.classList.add('animate-fade-in-up');
+    }
+
+    function renderChart(chartData, forecastChartData) {
+        const ctx = document.getElementById('stockChart').getContext('2d');
+        if(stockChart) stockChart.destroy();
+        
+        elements.chartTitle.textContent = "Stock Performance & Forecast";
+
+        const historicalLabels = chartData.labels || [];
+        const historicalData = chartData.data || [];
+
+        let combinedLabels = [...historicalLabels];
+        
+        const datasets = [{
+            label: 'Historical Price',
+            data: historicalData,
+            borderColor: '#38bdf8', // Sky 400
+            backgroundColor: 'rgba(56, 189, 248, 0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.1,
+            fill: true,
+        }];
+
+        if (forecastChartData && forecastChartData.length > 0) {
+            const forecastColors = ['#facc15', '#4ade80', '#f87171']; // Yellow, Green, Red
+            
+            const firstForecastLabel = forecastChartData[0].labels[0];
+            const startIndex = historicalLabels.indexOf(firstForecastLabel);
+            
+            if (startIndex === -1) {
+                combinedLabels.push(...forecastChartData.flatMap(f => f.labels));
+            } else {
+                combinedLabels = historicalLabels.slice(0, startIndex);
+                combinedLabels.push(...forecastChartData.flatMap(f => f.labels));
+            }
+            combinedLabels = [...new Set(combinedLabels)];
+
+            forecastChartData.forEach((forecast, index) => {
+                const forecastDataPadded = Array(historicalLabels.length - 1).fill(null);
+                forecastDataPadded.push(historicalData[historicalData.length - 1]);
+                forecastDataPadded.push(...forecast.data);
+
+                datasets.push({
+                    label: `Forecast (${forecast.horizon} days)`,
+                    data: forecastDataPadded,
+                    borderColor: forecastColors[index % forecastColors.length],
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    borderDash: [5, 5],
+                });
+            });
+        }
+
+        stockChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: combinedLabels,
+                datasets: datasets,
+            },
+            options: {
+                scales: {
+                    x: {
+                        display: true,
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, maxTicksLimit: 7 }
+                    },
+                    y: {
+                        display: true,
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#94a3b8', callback: (value) => `₹${value}` }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: { color: '#e2e8f0' }
+                    }
+                },
+                animation: {
+                    duration: 800,
+                    easing: 'easeInOutCubic'
+                }
+            }
+        });
+        elements.chartWidget.classList.remove('hidden');
+        elements.chartWidget.classList.add('animate-fade-in-up');
+    }
+
+    function renderError(message) {
+        elements.loaderContainer.classList.add('hidden');
+        elements.errorMessage.textContent = `Analysis Failed: ${message}`;
+        elements.errorMessage.classList.remove('hidden');
+    }
+
+    async function callBackend(company, query) {
+        updateUIForLoading();
+        try {
+            const response = await fetch('/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ company: company, query: query })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || `HTTP error! Status: ${response.status}`);
+            }
+            
+            renderResults(data);
+
+        } catch (error) {
+            console.error("Error calling backend:", error);
+            renderError(error.message);
+        } finally {
+            appState.isLoading = false;
+            elements.getAnalysisBtn.disabled = false;
+            elements.getAnalysisBtn.innerHTML = 'Get Analysis';
+        }
+    }
+});
+</script>
+</body>
+</html>
